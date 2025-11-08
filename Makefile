@@ -1,8 +1,8 @@
-// How to use this Makefile:
-// 1. To build both server and client, simply run:
-//      make
-// 2. To clean up generated files, run:
-//      make clean
+# How to use this Makefile:
+# 1. To build both server and client, simply run:
+#		make
+# 2. To clean up generated files, run:
+#		make clean
 
 #1. 컴파일러 및 플래그 정의
 CC = gcc
@@ -12,7 +12,7 @@ CC = gcc
 # -std=c23: C23 표준 사용
 # -g: 디버깅 정보 포함
 # -Iinclude: "include" 폴더를 헤더 파일(#include <...>) 검색 경로에 추가
-CFLAGS = -Wall -Wextra -std=c23 -g -Iinclude
+CFLAGS = -Wall -Wextra -std=c2x -g -Iinclude
 
 #2. 라이브러리 정의 (Libraries)
 # LDFLAGS = 링킹 옵션
