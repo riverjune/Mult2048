@@ -33,7 +33,12 @@ typedef struct {
     int my_score;
     int opp_score;
 
-    GameStatus status;
+    GameStatus game_status;
+    
+    int pending_attacks[10]; // 상대방이 나에게 보낸 공격 블록 수
+    int attack_count;        // 현재 대기 중인 공격 수
+    // int attack_timer;     // (필요시) 다음 공격까지 남은 시간
+    
 } S2C_Packet;
 
 #endif // PROTOCOL_H
