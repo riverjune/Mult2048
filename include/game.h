@@ -13,6 +13,9 @@ typedef struct {
     int score;       // 현재 점수
     bool game_over;  // 게임 오버 여부
     bool moved;      // 마지막 이동에서 타일이 움직였는지 여부
+    // [PvP 확장 기능]
+    int attack_queue[10]; // 최대 10개의 공격 대기열
+    int attack_cnt;       // 현재 대기열에 있는 공격 수
 } GameState;
 
 // 방향 상수 (protocol.h의 ClientAction과 연동될 수 있지만 game.h는 protocol.h에 의존하지 않게 설계)
@@ -45,13 +48,13 @@ int game_move(GameState* state, Direction dir);
  * @brief 보드의 빈 칸에 새로운 타일 (2 또는 4)를 무작위로 추가
  * @param state 게임 상태 구조체의 포인터
  */
-void game_add_random_tile(GameState* state);
+void game_spawn_tile(GameState* state);
 
 /**
  * @brief 게임이 끝났는지 (더 이상 이동할 수 없는지) 확인
  * @param state 게임 상태 구조체의 포인터
  * @return 게임 오버 여부 (bool)
  */
-bool game_is_over(const GameState* state);  
+bool game_is_over(GameState* state);  
 
 #endif // GAME_H
