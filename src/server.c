@@ -118,28 +118,43 @@ void *handle_client(void *arg) {
 
         pthread_mutex_lock(&mut);
 
-        // 1. 게임 로직 실행 (이동)
-        int score_gained = game_move(&game_states[my_id], req_packet.action);
+        // 1. 게임 오버 체크 (움직임 방지)
+        if (game_states[my_id].game_over) {
+            send_game_state(my_id);
+            if (clnt_cnt > 1) send_game_state(opp_id);
+            pthread_mutex_unlock(&mut);
+            continue;
+        }
 
-        // [수정 2] ★핵심★ 타일이 실제로 움직였을 때만 새 타일 생성!
+        // 2. 이동 로직
+        // [경고 해결] 명시적 형변환
+        int score_gained = game_move(&game_states[my_id], (Direction)req_packet.action);
+
+        // 3. 타일 생성 및 공격 실행
+        // 움직였으면 타일 생성
         if (game_states[my_id].moved) {
             game_spawn_tile(&game_states[my_id]);
         }
+        
+        // [핵심] 큐에 있는 공격 실행 (여기서 highlight_r/c가 설정됨)
+        // 움직임 여부와 상관없이 시도하거나, moved일 때만 시도할 수 있음.
+        // 보통 2048류 게임은 턴이 넘어갈 때 공격이 들어오므로 moved 체크를 하는 게 자연스러움.
+        // 하지만 비동기성을 위해 매번 호출하되 game_logic 안에서 큐가 있을 때만 동작함.
+        game_execute_attack(&game_states[my_id]); 
 
-        // 2. 공격 실행 (내 턴에 방해 블록 떨어짐)
-        game_execute_attack(&game_states[my_id]);
+        // [CRITICAL FIX] 게임 상태 갱신 (반드시 호출해야 함!)
+        // 이동과 생성이 끝난 후, 더 이상 움직일 수 있는지 체크하여 game_over 플래그를 업데이트합니다.
+        game_is_over(&game_states[my_id]);
 
-        // 3. PvP 공격 판정 (128점 이상 획득 시)
+        // 4. 128점 달성 시 상대 큐에 공격 추가
         if (score_gained >= 128) {
             game_queue_attack(&game_states[opp_id], 2);
-            printf("[P%d] Attack triggered against [P%d]!\n", my_id + 1, opp_id + 1);
+            printf("[P%d] Attack Queued -> [P%d] (Score: %d)\n", my_id + 1, opp_id + 1, score_gained);
         }
 
-        // 4. 상태 전송 (Broadcasting)
+        // 5. 상태 전송
         send_game_state(my_id);
-        if (clnt_cnt > 1) {
-            send_game_state(opp_id);
-        }
+        if (clnt_cnt > 1) send_game_state(opp_id);
 
         pthread_mutex_unlock(&mut);
     }
@@ -179,10 +194,33 @@ void send_game_state(int id) {
     memcpy(res_packet.pending_attacks, game_states[id].attack_queue, sizeof(int) * 10);
     res_packet.attack_count = game_states[id].attack_cnt;
     // res_packet.attack_timer = ... (필요시 구현)
+    // [핵심 추가] 하이라이트 정보 전송
+    res_packet.highlight_r = game_states[id].highlight_r;
+    res_packet.highlight_c = game_states[id].highlight_c;
     
-    // 4. 게임 상태 (승리/패배 등) - 단순화
-    res_packet.game_status = game_states[id].game_over ? 3 : 1; 
+    // 4. 게임 상태 판정 (대기 및 최종 승패 로직 적용)
+    bool i_am_over = game_states[id].game_over;
+    bool opp_is_over = (clnt_cnt > 1) ? game_states[opp_id].game_over : true; 
 
+    // [중요: game_states[id].game_over 플래그 업데이트]
+    // game_is_over 함수 내부에서 game_over 플래그를 업데이트 하므로, 여기서 따로 할 필요 없음.
+
+    if (i_am_over && opp_is_over) {
+        // [수정] 둘 다 움직일 수 없는 경우: 점수 비교하여 최종 승패 결정
+        if (game_states[id].score > game_states[opp_id].score) {
+            res_packet.game_status = GAME_WIN; // 내가 승리
+        } else { 
+            // 점수가 같거나 낮으면 패배로 간주
+            res_packet.game_status = GAME_LOSE; // 내가 패배
+        }
+    } else if (i_am_over) {
+        // [나만 멈춤] -> 상대방 기다리는 중
+        res_packet.game_status = GAME_OVER_WAIT;
+    } else {
+        // [수정] 내가 진행 중 (상대 멈춤 여부 관계없이): GAME_PLAYING (1)
+        res_packet.game_status = GAME_PLAYING;
+    }
+    
     // 5. 전송
     write(clnt_socks[id], &res_packet, sizeof(res_packet));
 }

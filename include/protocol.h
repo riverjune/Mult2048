@@ -8,7 +8,8 @@ typedef enum {
     GAME_WAITING,
     GAME_PLAYING,
     GAME_WIN,
-    GAME_LOSE
+    GAME_LOSE,
+    GAME_OVER_WAIT  // [NEW] 나는 끝났지만 상대방 기다리는 중
 } GameStatus;
 
 //클라이언트의 입력을 나타내는 상수
@@ -35,10 +36,15 @@ typedef struct {
 
     GameStatus game_status;
     
-    int pending_attacks[10]; // 상대방이 나에게 보낸 공격 블록 수
-    int attack_count;        // 현재 대기 중인 공격 수
-    // int attack_timer;     // (필요시) 다음 공격까지 남은 시간
-    
+    // 공격 큐 정보 (화면 표시용)
+    int pending_attacks[10]; 
+    int attack_count;        
+
+    // [핵심 추가] 하이라이트 좌표 (공격받은 위치)
+    // -1이면 하이라이트 없음
+    int highlight_r; 
+    int highlight_c;
+
 } S2C_Packet;
 
 #endif // PROTOCOL_H

@@ -5,154 +5,216 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <ncurses.h> 
 
-#include "protocol.h" // 서버와 동일한 프로토콜 사용
+#include "protocol.h" 
 
 // ============================================
 // [전역 변수]
 // ============================================
-int sock; // 서버와 연결된 소켓
+int sock;                   
+pthread_mutex_t draw_mutex; 
 
 // ============================================
 // [함수 선언]
 // ============================================
-void *recv_msg(void *arg);
-void print_game_state(S2C_Packet *packet);
-void error_handling(const char *msg);
+void *recv_msg(void *arg);       
+void draw_game(S2C_Packet *pkt); 
+void init_ncurses_settings();    
+void cleanup_and_exit(int exit_code, const char *msg); 
 
 int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr;
-    pthread_t snd_thread, rcv_thread;
+    pthread_t rcv_thread;
 
     if (argc != 3) {
         printf("Usage : %s <IP> <port>\n", argv[0]);
         exit(1);
     }
 
-    // 1. 소켓 생성
     sock = socket(PF_INET, SOCK_STREAM, 0);
-    if (sock == -1)
-        error_handling("socket() error");
-
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
     serv_addr.sin_port = htons(atoi(argv[2]));
 
-    // 2. 서버 연결
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
-        error_handling("connect() error");
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
+        perror("connect() error");
+        exit(1);
+    }
 
-    printf("Connected to Game Server!\n");
-    printf("Controls: w(UP), s(DOWN), a(LEFT), d(RIGHT), q(QUIT)\n");
-
-    // 3. 수신 전담 스레드 생성 (서버가 보내는 보드를 계속 출력)
+    init_ncurses_settings();
+    pthread_mutex_init(&draw_mutex, NULL);
     pthread_create(&rcv_thread, NULL, recv_msg, (void *)&sock);
 
-    // 4. 메인 스레드는 사용자 입력 전담
-    // ... (main 함수 내부 while 루프 부분) ...
-
     while (1) {
-        char ch;
-        scanf(" %c", &ch);
-
+        int ch = getch(); 
+        
         C2S_Packet req;
-        int valid_input = 1;
-
+        int valid_input = 0; 
+        
         switch (ch) {
-            case 'w': req.action = 0; break; // UP
-            case 's': req.action = 1; break; // DOWN
-            case 'a': req.action = 2; break; // LEFT
-            case 'd': req.action = 3; break; // RIGHT
-            case 'q': 
-                req.action = 9; // [수정] QUIT 신호 설정
-                break;
-            default: valid_input = 0; break;
+            case 'w': case 'W': case KEY_UP:    req.action = MOVE_UP; valid_input = 1; break;
+            case 's': case 'S': case KEY_DOWN:  req.action = MOVE_DOWN; valid_input = 1; break;
+            case 'a': case 'A': case KEY_LEFT:  req.action = MOVE_LEFT; valid_input = 1; break;
+            case 'd': case 'D': case KEY_RIGHT: req.action = MOVE_RIGHT; valid_input = 1; break;
+            case 'q': case 'Q': req.action = QUIT; valid_input = 1; break;
         }
 
         if (valid_input) {
-            write(sock, &req, sizeof(req)); // 서버로 전송
-            
-            // [수정] QUIT 신호를 보냈으면 클라이언트도 안전하게 종료
-            if (req.action == 9) {
-                printf("Quitting game...\n");
-                close(sock);
-                exit(0);
+            write(sock, &req, sizeof(req));
+            if (req.action == QUIT) {
+                cleanup_and_exit(0, "Quit by user.");
             }
         }
     }
-
-    close(sock);
     return 0;
 }
 
-// ============================================
-// [수신 스레드] 서버로부터 게임 상태를 받아 화면에 출력
-// ============================================
 void *recv_msg(void *arg) {
-    int sock = *((int *)arg);
+    (void)arg;
     S2C_Packet packet;
     int str_len;
 
     while (1) {
-        // 서버로부터 S2C_Packet 구조체 크기만큼 읽음
         str_len = read(sock, &packet, sizeof(packet));
-        if (str_len == -1)
-            return (void *)-1;
-        if (str_len == 0) {
-            printf("Server disconnected.\n");
-            exit(0);
+        if (str_len <= 0) {
+            cleanup_and_exit(1, "Server disconnected."); 
+            break;
         }
-
-        // 화면 지우기 (리눅스 명령어)
-        system("clear"); 
-        
-        // 받은 데이터 출력
-        print_game_state(&packet);
+        pthread_mutex_lock(&draw_mutex);
+        draw_game(&packet);
+        pthread_mutex_unlock(&draw_mutex);
     }
     return NULL;
 }
 
 // ============================================
-// [출력 헬퍼] 보드 상태를 텍스트로 예쁘게 출력
+// [UI 그리기] 
 // ============================================
-void print_game_state(S2C_Packet *packet) {
-    printf("================[ 2048 PvP ]================\n");
-    printf("Me (Score: %d) \t\t Opponent (Score: %d)\n", packet->my_score, packet->opp_score);
-    printf("--------------------------------------------\n");
 
+#define START_Y 6
+#define START_X_ME 2
+#define START_X_OPP 40
+#define CELL_WIDTH 6
+#define CELL_HEIGHT 2 
+
+void draw_game(S2C_Packet *packet) {
+    clear();
+
+    // 1. 타이틀 및 점수
+    mvprintw(1, 25, "======[ 2048 PvP ]======");
+
+    attron(COLOR_PAIR(4));
+    mvprintw(3, 2,  "Me (Score: %d)", packet->my_score);
+    mvprintw(3, 40, "Opponent (Score: %d)", packet->opp_score);
+    attroff(COLOR_PAIR(4));
+
+    // 2. 보드 그리기
     for (int i = 0; i < 4; i++) {
-        // 내 보드 출력
         for (int j = 0; j < 4; j++) {
-            if (packet->my_board[i][j] == 0) printf("  . ");
-            else printf("%3d ", packet->my_board[i][j]);
-        }
-        
-        printf("\t|\t"); // 구분선
+            
+            // --- 내 보드 ---
+            int val_me = packet->my_board[i][j];
+            int x_me = START_X_ME + (j * CELL_WIDTH);
+            int y_me = START_Y + (i * CELL_HEIGHT);
+            
+            bool is_highlight = (i == packet->highlight_r && j == packet->highlight_c);
+            if (is_highlight) attron(COLOR_PAIR(2) | A_STANDOUT | A_BOLD);
 
-        // 상대 보드 출력
-        for (int j = 0; j < 4; j++) {
-            if (packet->opp_board[i][j] == 0) printf("  . ");
-            else printf("%3d ", packet->opp_board[i][j]);
+            if (val_me == 0) {
+                mvprintw(y_me, x_me, "  .  ");
+            } else {
+                mvprintw(y_me, x_me, "%4d ", val_me);
+            }
+
+            if (is_highlight) attroff(COLOR_PAIR(2) | A_STANDOUT | A_BOLD);
+            
+            // --- 상대 보드 ---
+            int val_opp = packet->opp_board[i][j];
+            int x_opp = START_X_OPP + (j * CELL_WIDTH);
+            int y_opp = START_Y + (i * CELL_HEIGHT);
+            
+            if (val_opp == 0) {
+                mvprintw(y_opp, x_opp, "  .  ");
+            } else {
+                mvprintw(y_opp, x_opp, "%4d ", val_opp);
+            }
         }
-        printf("\n");
     }
-    printf("--------------------------------------------\n");
     
-    // 공격 큐 정보 출력
-    printf("Pending Attacks: ");
-    for(int i=0; i<packet->attack_count; i++) {
-        printf("[%d] ", packet->pending_attacks[i]);
+    // 3. 하단 정보 (공격 대기열 출력) -> [좌표: 16번째 줄]
+    mvprintw(16, 2, "Pending Attacks (Queue): ");
+    
+    if (packet->attack_count > 0) {
+        attron(COLOR_PAIR(2)); 
+        for(int i = 0; i < packet->attack_count; i++) {
+            printw("[%d] ", packet->pending_attacks[i]);
+        }
+        attroff(COLOR_PAIR(2));
+    } else {
+        printw("None");
     }
-    printf("\n");
     
-    if (packet->game_status == 3) printf("\n*** GAME OVER ***\n");
+    // 4. 게임 종료 상태 메시지 -> [수정: 좌표를 18번째 줄로 이동하여 겹침 방지]
+    int status_y = 18; 
     
-    printf("\nInput (w/a/s/d): ");
-    fflush(stdout); // 출력 버퍼 비우기
+    if (packet->game_status == GAME_OVER_WAIT) {
+        // [대기 상태] 파랑배경
+        attron(COLOR_PAIR(3)); 
+        mvprintw(status_y, 2, "!!! NO MOVES - WAITING FOR OPPONENT (%d) !!!", packet->opp_score);
+        mvprintw(status_y + 1, 2, "YOUR FINAL SCORE: %d", packet->my_score);
+        attroff(COLOR_PAIR(3));
+        
+    } else if (packet->game_status == GAME_LOSE) {
+        // [최종 패배]
+        attron(COLOR_PAIR(2) | A_BLINK | A_STANDOUT);
+        mvprintw(status_y, 2, "!!! GAME OVER - YOU LOSE (%d) !!!", packet->my_score);
+        attroff(COLOR_PAIR(2) | A_BLINK | A_STANDOUT);
+        
+    } else if (packet->game_status == GAME_WIN) {
+        // [최종 승리]
+        attron(COLOR_PAIR(4) | A_STANDOUT);
+        mvprintw(status_y, 2, "*** VICTORY - YOU WIN (%d) ***", packet->my_score);
+        attroff(COLOR_PAIR(4) | A_STANDOUT);
+        
+    } else {
+         // [진행 중] 메시지 영역 지우기
+         mvprintw(status_y, 2, "                                                    ");
+         mvprintw(status_y + 1, 2, "                                                    ");
+    }
+
+    // 입력 가이드 위치도 살짝 아래로 조정 (21번째 줄)
+    mvprintw(21, 2, "Input (w/a/s/d) or 'q' to Quit");
+    
+    refresh();
 }
 
-void error_handling(const char *msg) {
-    perror(msg);
-    exit(1);
+void init_ncurses_settings() {
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    curs_set(0);
+
+    attron(A_BOLD); 
+    
+    if (has_colors()) {
+        start_color();
+        init_pair(1, COLOR_WHITE, COLOR_BLACK); 
+        init_pair(2, COLOR_RED,   COLOR_BLACK); // 공격 경고, 패배
+        init_pair(3, COLOR_CYAN, COLOR_BLACK); // 대기 상태
+        init_pair(4, COLOR_YELLOW, COLOR_BLACK); // 승리, 점수
+    }
+}
+
+void cleanup_and_exit(int exit_code, const char *msg) {
+    pthread_mutex_destroy(&draw_mutex);
+    endwin(); 
+    close(sock);
+    
+    if (msg != NULL) {
+        printf("%s\n", msg);
+    }
+    exit(exit_code);
 }

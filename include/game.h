@@ -16,6 +16,10 @@ typedef struct {
     // [PvP 확장 기능]
     int attack_queue[10]; // 최대 10개의 공격 대기열
     int attack_cnt;       // 현재 대기열에 있는 공격 수
+
+    // [핵심 추가] 이번 턴에 공격받은 위치 저장
+    int highlight_r; 
+    int highlight_c;
 } GameState;
 
 // 방향 상수 (protocol.h의 ClientAction과 연동될 수 있지만 game.h는 protocol.h에 의존하지 않게 설계)
@@ -49,6 +53,11 @@ int game_move(GameState* state, Direction dir);
  * @param state 게임 상태 구조체의 포인터
  */
 void game_spawn_tile(GameState* state);
+
+// 큐에 공격 추가
+void game_queue_attack(GameState *state, int value);
+// 큐에 있는 공격 실행 (위치 정보 업데이트 포함)
+void game_execute_attack(GameState *state);
 
 /**
  * @brief 게임이 끝났는지 (더 이상 이동할 수 없는지) 확인
