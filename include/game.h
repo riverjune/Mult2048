@@ -17,12 +17,12 @@ typedef struct {
     int attack_queue[10]; // 최대 10개의 공격 대기열
     int attack_cnt;       // 현재 대기열에 있는 공격 수
 
-    // [핵심 추가] 이번 턴에 공격받은 위치 저장
+    // 이번 턴에 공격받은 위치 저장
     int highlight_r; 
     int highlight_c;
 } GameState;
 
-// 방향 상수 (protocol.h의 ClientAction과 연동될 수 있지만 game.h는 protocol.h에 의존하지 않게 설계)
+// 방향 상수 
 typedef enum {
     UP,
     DOWN,
