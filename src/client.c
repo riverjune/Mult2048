@@ -125,7 +125,15 @@ void draw_game(S2C_Packet *packet) {
             if (val_me == 0) {
                 mvprintw(y_me, x_me, "  .  ");
             } else {
-                mvprintw(y_me, x_me, "%4d ", val_me);
+                //중앙정렬 구현
+                if (val_me < 10)
+                    mvprintw(y_me, x_me, "  %d  ", val_me);
+                else if (val_me < 100)
+                    mvprintw(y_me, x_me, " %d  ", val_me);
+                else if (val_me < 1000)
+                    mvprintw(y_me, x_me, " %d ", val_me);
+                else
+                    mvprintw(y_me, x_me, "%d ", val_me);
             }
 
             if (is_highlight) attroff(COLOR_PAIR(2) | A_STANDOUT | A_BOLD);
