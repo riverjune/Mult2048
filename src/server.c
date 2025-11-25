@@ -74,6 +74,15 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // 방이 비어있었다면(첫 손님), 게임 상태 리셋 
+        if (clnt_cnt == 0) {
+            printf("New session started. Resetting game states...\n");
+            game_init(&game_states[0]); // 1P 초기화
+            game_init(&game_states[1]); // 2P 초기화
+            // 혹시 남아있을 수 있는 소켓 정보도 초기화
+            memset(clnt_socks, 0, sizeof(clnt_socks));
+        }
+        
         // [Critical Section] 접속자 정보 갱신 (뮤텍스 잠금)
         clnt_socks[clnt_cnt] = clnt_sock;
         // 스레드에게 넘겨줄 ID (0 또는 1)를 힙 메모리에 할당
