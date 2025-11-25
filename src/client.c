@@ -27,7 +27,14 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr;
     pthread_t rcv_thread;
 
-    if (argc != 3) {
+    if (argc == 1) {
+        printf("Using default IP \"127.0.0.1\" and port 8080\n");
+        argv[1] = "127.0.0.1";
+        argv[2] = "8080";
+    } else if (argc == 2) {
+        printf("Using default port 8080\n");
+        argv[2] = "8080";
+    } else if (argc != 3) {
         printf("Usage : %s <IP> <port>\n", argv[0]);
         exit(1);
     }

@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -30,7 +29,10 @@ int main(int argc, char *argv[]) {
     socklen_t clnt_adr_sz;
     pthread_t t_id;
 
-    if (argc != 2) {
+    if (argc == 1) {
+        printf("Using default port 8080\n");
+        argv[1] = "8080";
+    }else if (argc != 2) {
         printf("Usage : %s <port>\n", argv[0]);
         exit(1);
     }
