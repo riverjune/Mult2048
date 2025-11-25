@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    memset(clnt_socks, -1, sizeof(clnt_socks)); // 클라이언트 목록 초기화
     // 1. 뮤텍스 초기화 (열쇠 만들기)
     pthread_mutex_init(&mut, NULL);
 
