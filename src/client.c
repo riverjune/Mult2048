@@ -102,6 +102,21 @@ void *recv_msg(void *arg) {
 void draw_game(S2C_Packet *packet) {
     clear();
 
+    // 대기실 화면 처리
+    if (packet->game_status == GAME_WAITING) {
+        attron(COLOR_PAIR(3) | A_BOLD); // Cyan 색상
+        mvprintw(10, 20, "===================================");
+        mvprintw(11, 20, "|    WAITING FOR OPPONENT...      |");
+        mvprintw(12, 20, "|                                 |");
+        mvprintw(13, 20, "|     [ 1 / 2 Players Ready ]     |");
+        mvprintw(14, 20, "===================================");
+        attroff(COLOR_PAIR(3) | A_BOLD);
+        
+        mvprintw(16, 22, "Please wait for Player 2 to join.");
+        refresh();
+        return; // 보드 그리지 않고 리턴
+    }
+    
     // 1. 타이틀 및 점수
     mvprintw(1, 25, "======[ 2048 PvP ]======");
 
@@ -146,7 +161,15 @@ void draw_game(S2C_Packet *packet) {
             if (val_opp == 0) {
                 mvprintw(y_opp, x_opp, "  .  ");
             } else {
-                mvprintw(y_opp, x_opp, "%4d ", val_opp);
+                //중앙정렬 구현
+                if (val_opp < 10)
+                    mvprintw(y_opp, x_opp, "  %d  ", val_opp);
+                else if (val_opp < 100)
+                    mvprintw(y_opp, x_opp, " %d  ", val_opp);
+                else if (val_opp < 1000)
+                    mvprintw(y_opp, x_opp, " %d ", val_opp);
+                else
+                    mvprintw(y_opp, x_opp, "%d ", val_opp);
             }
         }
     }
