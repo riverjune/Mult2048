@@ -106,13 +106,13 @@ void draw_game(S2C_Packet *packet) {
     if (packet->game_status == GAME_WAITING) {
         attron(COLOR_PAIR(3) | A_BOLD); // Cyan 색상
         mvprintw(10, 20, "===================================");
-        mvprintw(11, 20, "|    WAITING FOR OPPONENT...      |");
+        mvprintw(11, 20, "|     WAITING FOR OPPONENT...     |");
         mvprintw(12, 20, "|                                 |");
         mvprintw(13, 20, "|     [ 1 / 2 Players Ready ]     |");
-        mvprintw(14, 20, "===================================");
+        mvprintw(14, 20, "|                                 |");
+        mvprintw(15, 20, "|   Press 'q' to quit the game    |");
+        mvprintw(16, 20, "===================================");
         attroff(COLOR_PAIR(3) | A_BOLD);
-        
-        mvprintw(16, 22, "Please wait for Player 2 to join.");
         refresh();
         return; // 보드 그리지 않고 리턴
     }
@@ -211,8 +211,8 @@ void draw_game(S2C_Packet *packet) {
         
     } else {
          // [진행 중] 메시지 영역 지우기
-         mvprintw(status_y, 2, "                                                    ");
-         mvprintw(status_y + 1, 2, "                                                    ");
+        mvprintw(status_y, 2, "                                                    ");
+        mvprintw(status_y + 1, 2, "                                                    ");
     }
 
     // 입력 가이드 위치도 살짝 아래로 조정 (21번째 줄)
