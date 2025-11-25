@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -158,15 +159,20 @@ void *handle_client(void *arg) {
 
         // 5. 128점 이상 달성 시 상대 큐에 공격 추가
         if (score_gained >= 128) {
-            // 값이 높아질수록 더 강한 공격을 보낼 확률 증가 (균등확률)
-            int max_attack_value = 2, n = 1;
-            // 128점당 공격 타일 최대 값이 2배씩 증가
-            for (; 128 * max_attack_value <= score_gained ; max_attack_value *=2, n++);
-            // 2,4,8,... 중 랜덤 선택
-            int attack_value = 2^(rand() % n + 1); 
+            // 1. 공격 개수 계산 (128점당 블록 1개 추가)
+            // 128점 -> 1개, 256점 -> 2개, 512점 -> 4개...
+            int attack_count = score_gained / 128;
+    
+            // 너무 많이 보내면 순식간에 죽으므로 최대 4개로 제한
+            if (attack_count > 4) attack_count = 4;
 
-            game_queue_attack(&game_states[opp_id], max_attack_value);
-            printf("[P%d] Attack Queued -> [P%d] (Score: %d)\n", my_id + 1, opp_id + 1, score_gained);
+            // 2. 개수만큼 공격 큐에 '2'를 집어넣음
+            for (int i = 0; i < attack_count; i++) {
+            // 약간의 변주: 10% 확률로 4, 나머지는 2 (game_logic과 비슷하게)
+                int attack_value = (rand() % 10 == 0) ? 4 : 2;
+                game_queue_attack(&game_states[opp_id], attack_value);
+            }
+            printf("[P%d] Attack! Sent %d blocks (Score: %d)\n", my_id + 1, attack_count, score_gained);
         }
 
         // 5. 상태 전송
