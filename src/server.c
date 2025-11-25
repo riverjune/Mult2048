@@ -14,14 +14,22 @@
 // ============================================
 #define MAX_CLNT 2
 
-int clnt_socks[MAX_CLNT];     // 접속한 클라이언트 소켓 목록
+int clnt_socks[MAX_CLNT];     // 접속한 클라이언트 소켓 목록 (-1이면 빈자리)
 GameState game_states[MAX_CLNT]; // 각 플레이어의 게임 상태 (0번: 1P, 1번: 2P)
-int clnt_cnt = 0;             // 현재 접속자 수
 pthread_mutex_t mut;          // 게임 상태 보호를 위한 뮤텍스
 
 void *handle_client(void *arg);
 void send_game_state(int my_id);
 void error_handling(const char *msg);
+
+// 현재 접속자 수 계산 함수
+int get_client_count() {
+    int count = 0;
+    for (int i = 0; i < MAX_CLNT; i++) {
+        if (clnt_socks[i] != -1) count++;
+    }
+    return count;
+}
 
 int main(int argc, char *argv[]) {
     int serv_sock, clnt_sock;
@@ -67,37 +75,37 @@ int main(int argc, char *argv[]) {
         clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_adr, &clnt_adr_sz);
         
         pthread_mutex_lock(&mut); // 카운트 확인 전 잠금
-        if (clnt_cnt >= MAX_CLNT) {
+
+        //빈자리 찾기
+        int empty_slot = -1;
+        for (int i = 0; i < MAX_CLNT; i++) {
+            if (clnt_socks[i] == -1) {
+                empty_slot = i;
+                break;
+            }
+        }
+        if (empty_slot == -1) {
             pthread_mutex_unlock(&mut);
             printf("Server full! Connection rejected.\n");
             close(clnt_sock);
             continue;
         }
 
-        // 방이 비어있었다면(첫 손님), 게임 상태 리셋 
-        if (clnt_cnt == 0) {
-            printf("New session started. Resetting game states...\n");
-            game_init(&game_states[0]); // 1P 초기화
-            game_init(&game_states[1]); // 2P 초기화
-            // 혹시 남아있을 수 있는 소켓 정보도 초기화
-            memset(clnt_socks, 0, sizeof(clnt_socks));
-        }
-        
-        // [Critical Section] 접속자 정보 갱신 (뮤텍스 잠금)
-        clnt_socks[clnt_cnt] = clnt_sock;
+        // 접속자 정보 갱신 (뮤텍스 잠금)
+        clnt_socks[empty_slot] = clnt_sock;
         // 스레드에게 넘겨줄 ID (0 또는 1)를 힙 메모리에 할당
         int *id_ptr = (int *)malloc(sizeof(int));
-        *id_ptr = clnt_cnt; 
-        clnt_cnt++;
+        *id_ptr = empty_slot;
+        
 
         printf("Connected client IP: %s (Player %d)\n", inet_ntoa(clnt_adr.sin_addr), *id_ptr + 1);
 
         // 매칭 성공 시 기존 플레이어 화면 갱신
-        if (clnt_cnt == 2) {
+        if (get_client_count() == 2) {
             // 두 플레이어 모두 접속했으므로 초기 상태 전송
             printf("Match Found! Starting game...\n");
-            send_game_state(0);
-            send_game_state(1);
+            if (clnt_socks[0] != -1) send_game_state(0);
+            if (clnt_socks[1] != -1) send_game_state(1);
             printf("Both players connected. Game start\n");
         }
 
@@ -137,7 +145,7 @@ void *handle_client(void *arg) {
         pthread_mutex_lock(&mut);
 
         // [대기 중 조작 방지]
-        if (clnt_cnt < 2) {
+        if (get_client_count() < 2) {
             pthread_mutex_unlock(&mut);
             continue; 
         }
@@ -145,7 +153,7 @@ void *handle_client(void *arg) {
         // 게임 오버 체크 (움직임 방지)
         if (game_states[my_id].game_over) {
             send_game_state(my_id);
-            if (clnt_cnt > 1) send_game_state(opp_id);
+            if (clnt_socks[opp_id] != -1) send_game_state(opp_id);
             pthread_mutex_unlock(&mut);
             continue;
         }
@@ -188,19 +196,29 @@ void *handle_client(void *arg) {
 
         // 5. 상태 전송
         send_game_state(my_id);
-        if (clnt_cnt > 1) send_game_state(opp_id);
+        if (clnt_socks[opp_id] != -1) send_game_state(opp_id);
 
         pthread_mutex_unlock(&mut);
     }
     
     // 연결 종료 시 처리
     pthread_mutex_lock(&mut);
-    clnt_cnt--;
-    printf("Player %d disconnected.\n", my_id + 1);
-    // 상대방에게 종료 알림 (선택 사항: 상대방 승리 처리 등)
-    if (clnt_cnt > 0) send_game_state(opp_id);
-    pthread_mutex_unlock(&mut);
     
+    clnt_socks[my_id] = -1; // 소켓 자리 비우기
+    printf("Player %d disconnected.\n", my_id + 1);
+
+    int current_cnt = get_client_count();
+    if (current_cnt == 0) {
+        // 두 명 다 나갔다면 게임 상태 초기화
+        printf("Both players disconnected. Resetting game states...\n");
+        game_init(&game_states[0]);
+        game_init(&game_states[1]);
+    } else {
+        // 남은 플레이어에게 대기 상태 전송
+        if (clnt_socks[opp_id] != -1) {
+            send_game_state(opp_id);
+        }
+    }    
     close(sock);
     return NULL;
 }
@@ -209,6 +227,7 @@ void *handle_client(void *arg) {
 // [Helper] S2C 패킷을 만들어 클라이언트에게 전송
 // ============================================
 void send_game_state(int id) {
+    if (clnt_socks[id] == -1) return; // 접속 안 된 클라이언트 무시
     int opp_id = (id + 1) % 2;
     S2C_Packet res_packet;
 
@@ -217,7 +236,7 @@ void send_game_state(int id) {
     res_packet.my_score = game_states[id].score;
     
     // 2. 상대방 정보 채우기 (상대가 없으면 0)
-    if (clnt_cnt > 1) {
+    if (clnt_socks[opp_id] != -1) {
         memcpy(res_packet.opp_board, game_states[opp_id].board, sizeof(int) * 16);
         res_packet.opp_score = game_states[opp_id].score;
     } else {
@@ -234,7 +253,7 @@ void send_game_state(int id) {
     res_packet.highlight_c = game_states[id].highlight_c;
 
     // 4. 게임 상태 판정 (대기 및 최종 승패 로직 적용)
-    if (clnt_cnt < 2) {
+    if (get_client_count() < 2) {
         res_packet.game_status = GAME_WAITING;
     }
     else {
