@@ -24,8 +24,7 @@ void send_game_state(int my_id);
 void error_handling(const char *msg);
 
 int main(int argc, char *argv[]) {
-    int serv_sock;
-    int clnt_sock;
+    int serv_sock, clnt_sock;
     struct sockaddr_in serv_adr, clnt_adr;
     socklen_t clnt_adr_sz;
     pthread_t t_id;
@@ -64,25 +63,33 @@ int main(int argc, char *argv[]) {
         clnt_adr_sz = sizeof(clnt_adr);
         clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_adr, &clnt_adr_sz);
         
+        pthread_mutex_lock(&mut); // 카운트 확인 전 잠금
         if (clnt_cnt >= MAX_CLNT) {
+            pthread_mutex_unlock(&mut);
             printf("Server full! Connection rejected.\n");
             close(clnt_sock);
             continue;
         }
 
         // [Critical Section] 접속자 정보 갱신 (뮤텍스 잠금)
-        pthread_mutex_lock(&mut);
         clnt_socks[clnt_cnt] = clnt_sock;
-        
         // 스레드에게 넘겨줄 ID (0 또는 1)를 힙 메모리에 할당
         int *id_ptr = (int *)malloc(sizeof(int));
         *id_ptr = clnt_cnt; 
-        
         clnt_cnt++;
-        pthread_mutex_unlock(&mut);
 
         printf("Connected client IP: %s (Player %d)\n", inet_ntoa(clnt_adr.sin_addr), *id_ptr + 1);
 
+        // 매칭 성공 시 기존 플레이어 화면 갱신
+        if (clnt_cnt == 2) {
+            // 두 플레이어 모두 접속했으므로 초기 상태 전송
+            printf("Match Found! Starting game...\n");
+            send_game_state(0);
+            send_game_state(1);
+            printf("Both players connected. Game start\n");
+        }
+
+        pthread_mutex_unlock(&mut);
         // 5. 클라이언트 전담 스레드 생성!
         pthread_create(&t_id, NULL, handle_client, (void *)id_ptr);
         pthread_detach(t_id); // 스레드가 종료되면 알아서 메모리 해제되도록 설정
@@ -103,22 +110,27 @@ void *handle_client(void *arg) {
 
     C2S_Packet req_packet;
     
-    // 최초 접속 시 상태 전송
+    // 최초 접속 시 상태 전송 (1명일 땐 대기화면 표시)
     pthread_mutex_lock(&mut);
     send_game_state(my_id);
     pthread_mutex_unlock(&mut);
 
     while (read(sock, &req_packet, sizeof(req_packet)) > 0) {
         
-        // [수정 1] 종료 신호(9) 처리
-        if (req_packet.action == 9) {
+        if (req_packet.action == QUIT) {
             printf("[Player %d] Quit request received.\n", my_id + 1);
             break; // 루프 탈출 -> 연결 종료 처리로 이동
         }
 
         pthread_mutex_lock(&mut);
 
-        // 1. 게임 오버 체크 (움직임 방지)
+        // [대기 중 조작 방지]
+        if (clnt_cnt < 2) {
+            pthread_mutex_unlock(&mut);
+            continue; 
+        }
+
+        // 게임 오버 체크 (움직임 방지)
         if (game_states[my_id].game_over) {
             send_game_state(my_id);
             if (clnt_cnt > 1) send_game_state(opp_id);
@@ -126,29 +138,34 @@ void *handle_client(void *arg) {
             continue;
         }
 
-        // 2. 이동 로직
-        // [경고 해결] 명시적 형변환
+        // 1. 이동 로직
         int score_gained = game_move(&game_states[my_id], (Direction)req_packet.action);
 
-        // 3. 타일 생성 및 공격 실행
-        // 움직였으면 타일 생성
+        // 3. 타일 생성(움직였을 때만) 및 공격 실행
         if (game_states[my_id].moved) {
             game_spawn_tile(&game_states[my_id]);
         }
         
-        // [핵심] 큐에 있는 공격 실행 (여기서 highlight_r/c가 설정됨)
+        // 3. 큐에 있는 공격 실행 (여기서 highlight_r/c 설정)
         // 움직임 여부와 상관없이 시도하거나, moved일 때만 시도할 수 있음.
         // 보통 2048류 게임은 턴이 넘어갈 때 공격이 들어오므로 moved 체크를 하는 게 자연스러움.
         // 하지만 비동기성을 위해 매번 호출하되 game_logic 안에서 큐가 있을 때만 동작함.
         game_execute_attack(&game_states[my_id]); 
 
-        // [CRITICAL FIX] 게임 상태 갱신 (반드시 호출해야 함!)
+        // 4. 게임 오버 체크 및 갱싱
         // 이동과 생성이 끝난 후, 더 이상 움직일 수 있는지 체크하여 game_over 플래그를 업데이트합니다.
         game_is_over(&game_states[my_id]);
 
-        // 4. 128점 달성 시 상대 큐에 공격 추가
+        // 5. 128점 이상 달성 시 상대 큐에 공격 추가
         if (score_gained >= 128) {
-            game_queue_attack(&game_states[opp_id], 2);
+            // 값이 높아질수록 더 강한 공격을 보낼 확률 증가 (균등확률)
+            int max_attack_value = 2, n = 1;
+            // 128점당 공격 타일 최대 값이 2배씩 증가
+            for (; 128 * max_attack_value <= score_gained ; max_attack_value *=2, n++);
+            // 2,4,8,... 중 랜덤 선택
+            int attack_value = 2^(rand() % n + 1); 
+
+            game_queue_attack(&game_states[opp_id], max_attack_value);
             printf("[P%d] Attack Queued -> [P%d] (Score: %d)\n", my_id + 1, opp_id + 1, score_gained);
         }
 
@@ -162,8 +179,9 @@ void *handle_client(void *arg) {
     // 연결 종료 시 처리
     pthread_mutex_lock(&mut);
     clnt_cnt--;
-    // (단순화를 위해 배열 정리는 생략, 실제로는 소켓 목록 당기기 등이 필요)
     printf("Player %d disconnected.\n", my_id + 1);
+    // 상대방에게 종료 알림 (선택 사항: 상대방 승리 처리 등)
+    if (clnt_cnt > 0) send_game_state(opp_id);
     pthread_mutex_unlock(&mut);
     
     close(sock);
@@ -194,33 +212,35 @@ void send_game_state(int id) {
     memcpy(res_packet.pending_attacks, game_states[id].attack_queue, sizeof(int) * 10);
     res_packet.attack_count = game_states[id].attack_cnt;
     // res_packet.attack_timer = ... (필요시 구현)
-    // [핵심 추가] 하이라이트 정보 전송
+    //하이라이트 좌표 (서버에서 계산 안 할 경우 기본값 -1)
     res_packet.highlight_r = game_states[id].highlight_r;
     res_packet.highlight_c = game_states[id].highlight_c;
-    
+
     // 4. 게임 상태 판정 (대기 및 최종 승패 로직 적용)
-    bool i_am_over = game_states[id].game_over;
-    bool opp_is_over = (clnt_cnt > 1) ? game_states[opp_id].game_over : true; 
-
-    // [중요: game_states[id].game_over 플래그 업데이트]
-    // game_is_over 함수 내부에서 game_over 플래그를 업데이트 하므로, 여기서 따로 할 필요 없음.
-
-    if (i_am_over && opp_is_over) {
-        // [수정] 둘 다 움직일 수 없는 경우: 점수 비교하여 최종 승패 결정
-        if (game_states[id].score > game_states[opp_id].score) {
-            res_packet.game_status = GAME_WIN; // 내가 승리
-        } else { 
-            // 점수가 같거나 낮으면 패배로 간주
-            res_packet.game_status = GAME_LOSE; // 내가 패배
-        }
-    } else if (i_am_over) {
-        // [나만 멈춤] -> 상대방 기다리는 중
-        res_packet.game_status = GAME_OVER_WAIT;
-    } else {
-        // [수정] 내가 진행 중 (상대 멈춤 여부 관계없이): GAME_PLAYING (1)
-        res_packet.game_status = GAME_PLAYING;
+    if (clnt_cnt < 2) {
+        res_packet.game_status = GAME_WAITING;
     }
-    
+    else {
+        bool i_am_over = game_states[id].game_over;
+        bool opp_is_over = game_states[opp_id].game_over;
+
+        if (i_am_over && opp_is_over) {
+        // 둘 다 움직일 수 없는 경우: 점수 비교하여 최종 승패 결정
+            if (game_states[id].score > game_states[opp_id].score) {
+                res_packet.game_status = GAME_WIN; // 내가 승리
+            } else { 
+                // 점수가 같거나 낮으면 패배로 간주
+                res_packet.game_status = GAME_LOSE; // 내가 패배
+        }
+        } else if (i_am_over) {
+            // 나만 멈춤 -> 상대방 기다리는 중
+            res_packet.game_status = GAME_OVER_WAIT;
+        } else {
+            // 내가 진행 중 (상대 멈춤 여부 관계없이): GAME_PLAYING (1)
+            res_packet.game_status = GAME_PLAYING;
+        }
+    }
+
     // 5. 전송
     write(clnt_socks[id], &res_packet, sizeof(res_packet));
 }
