@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,8 +15,8 @@
 // ============================================
 int sock = -1;                   
 pthread_mutex_t draw_mutex; 
-char *server_ip = "127.0.0.1";
-int server_port = 8080;
+char *server_ip = "127.0.0.1"; // 기본값 설정
+int server_port = 8080;        // 기본값 설정
 
 // ============================================
 // [함수 선언]
@@ -24,6 +25,7 @@ void *recv_msg(void *arg);
 void draw_game(S2C_Packet *pkt, int is_single_mode); 
 void init_ncurses_settings();    
 void cleanup_and_exit(int exit_code, const char *msg); 
+int recv_all(int sock, void *buffer, size_t len);
 
 // 메뉴 및 모드 관련
 int show_main_menu();
@@ -32,15 +34,22 @@ void run_multiplayer_mode();
 
 int main(int argc, char *argv[]) {
 
-    if(argc == 2){
+    if (argc == 1) {
+        printf("Using default IP %s and port %d\n", server_ip, server_port);
+    } else if (argc == 2) {
         server_port = atoi(argv[1]);
-    } else if(argc == 3){
+        printf("Using default IP %s and custom port %d\n", server_ip, server_port);
+    } else if (argc == 3) {
         server_ip = argv[1];
         server_port = atoi(argv[2]);
-    } else if(argc > 3){
+        printf("Using custom IP %s and port %d\n", server_ip, server_port);
+    } else {
         printf("Usage : %s <IP> <port>\n", argv[0]);
         exit(1);
     }
+
+    sleep(1);
+
     // 서버연결부분 추후에 실행
     init_ncurses_settings();
     pthread_mutex_init(&draw_mutex, NULL);
@@ -49,9 +58,11 @@ int main(int argc, char *argv[]) {
         int choice = show_main_menu();
         switch (choice) {
             case 1:
+                nodelay(stdscr, FALSE); // 싱글은 블로킹 모드
                 run_single_player_mode();
                 break;
             case 2:
+                nodelay(stdscr, TRUE); // 멀티는 논블로킹 모드
                 run_multiplayer_mode();
                 break;
             case 3:
@@ -178,6 +189,7 @@ void run_multiplayer_mode() {
 
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
+
     serv_addr.sin_addr.s_addr = inet_addr(server_ip);
     serv_addr.sin_port = htons(server_port);
     // 연결 대기 화면
@@ -186,9 +198,13 @@ void run_multiplayer_mode() {
     refresh();
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
-        cleanup_and_exit(1, "Connection to server failed");
+        // 연결 실패 시 처리
+        mvprintw(12, 20, "Connection failed! Press any key...");
         refresh();
-        getch();
+        
+        nodelay(stdscr, FALSE); // 키 입력 기다림
+        getch(); 
+        
         close(sock);
         sock = -1;
         return; // 메뉴로 복귀
@@ -199,6 +215,11 @@ void run_multiplayer_mode() {
     while (1) {
         int ch = getch(); 
         
+        if (ch == ERR) {
+            usleep(10000);
+            continue;
+        }
+
         C2S_Packet req;
         int valid_input = 0; 
         
@@ -215,7 +236,7 @@ void run_multiplayer_mode() {
                 write(sock, &req, sizeof(req));
                 if(req.action == QUIT) {
                     // 서버에 종료 알리고 루프 탈출
-                    pthread_cancel(rcv_thread);
+                    pthread_cancel(rcv_thread);pthread_join(rcv_thread, NULL);
                     close(sock);
                     sock = -1;
                     return;
@@ -225,15 +246,37 @@ void run_multiplayer_mode() {
     }
 }
 
+int recv_all(int sock, void *buffer, size_t len) {
+    size_t received = 0;
+    char *ptr = (char *)buffer;
+    while (received < len) {
+        int ret = read(sock, ptr + received, len - received);
+        if (ret <= 0) return ret;
+        received += ret;
+    }
+    return received;
+}
+
 void *recv_msg(void *arg) {
     (void)arg;
     S2C_Packet packet;
     int str_len;
 
     while (1) {
-        str_len = read(sock, &packet, sizeof(packet));
+        str_len = recv_all(sock, &packet, sizeof(packet));
+        
         if (str_len <= 0) {
-            cleanup_and_exit(1, "Server disconnected."); 
+            // 서버 끊김 처리
+            pthread_mutex_lock(&draw_mutex);
+            clear();
+            mvprintw(10, 20, "Server disconnected! Press 'q' to exit...");
+            refresh();
+            pthread_mutex_unlock(&draw_mutex);
+            
+            // 메인 루프 종료를 유도하거나 여기서 대기
+            // 간단하게는 소켓 닫고 break하면 메인 루프의 write에서 에러나서 종료됨
+            close(sock);
+            sock = -1;
             break;
         }
         pthread_mutex_lock(&draw_mutex);
