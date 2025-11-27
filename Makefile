@@ -33,7 +33,7 @@ SERVER_SRC = $(SRC_DIR)/server.c $(SRC_DIR)/game_logic.c
 SERVER_OBJ = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SERVER_SRC))
 
 # 클라이언트 소스 및 오브젝트
-CLIENT_SRC = $(SRC_DIR)/client.c
+CLIENT_SRC = $(SRC_DIR)/client.c $(SRC_DIR)/game_logic.c
 CLIENT_OBJ = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(CLIENT_SRC))
 
 # 5. 실행 파일 정의 (Executables)
