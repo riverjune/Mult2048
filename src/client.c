@@ -291,8 +291,6 @@ void *recv_msg(void *arg) {
 // ============================================
 
 #define START_Y 6
-#define START_X_ME 2
-#define START_X_OPP 40
 #define CELL_WIDTH 6
 #define CELL_HEIGHT 2 
 
@@ -352,25 +350,47 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
         }
     // 대기실 화면 처리
     if (packet->game_status == GAME_WAITING) {
+        int center_y = row / 2;
+        int center_x = col /2 -17;
+        if(center_x < 0) center_x = 0;
+
         attron(COLOR_PAIR(3) | A_BOLD); // Cyan 색상
-        mvprintw(10, 20, "===================================");
-        mvprintw(11, 20, "|     WAITING FOR OPPONENT...     |");
-        mvprintw(12, 20, "|                                 |");
-        mvprintw(13, 20, "|     [ 1 / 2 Players Ready ]     |");
-        mvprintw(14, 20, "|                                 |");
-        mvprintw(15, 20, "|   Press 'q' to quit the game    |");
-        mvprintw(16, 20, "===================================");
+        mvprintw(center_y -3, center_x, "===================================");
+        mvprintw(center_y -2, center_x, "|     WAITING FOR OPPONENT...     |");
+        mvprintw(center_y -1, center_x, "|                                 |");
+        mvprintw(center_y ,   center_x, "|     [ 1 / 2 Players Ready ]     |");
+        mvprintw(center_y +1, center_x, "|                                 |");
+        mvprintw(center_y +2, center_x, "|   Press 'q' to quit the game    |");
+        mvprintw(center_y +3, center_x, "===================================");
         attroff(COLOR_PAIR(3) | A_BOLD);
         refresh();
         return; // 보드 그리지 않고 리턴
     }
     
-    // 1. 타이틀 및 점수
-    mvprintw(1, 25, "======[ 2048 PvP ]======");
+    int single_board_width = CELL_WIDTH * 4;
+    int gap = 8;
+    int total_width = single_board_width * 2 + gap;
 
+    int start_x_total = (col - total_width) / 2;;
+    if (start_x_total < 0) start_x_total = 0;
+
+    int start_x_me = start_x_total;
+    int start_x_opp = start_x_total + single_board_width + gap;
+
+    // 1. 타이틀
+    const char* title = "======[ 2048 PvP Mode ]======";
+    mvprintw(1, (col - strlen(title)) / 2, "%s", title);
+
+    // 점수 표시
+    char my_score_str[30], opp_score_str[30];
+    sprintf(my_score_str, "Me (Score: %d)", packet->my_score);
+    sprintf(opp_score_str, "Opponent (Score: %d)", packet->opp_score);
+
+    int me_center = start_x_me + (single_board_width /2);
+    int opp_center = start_x_opp + (single_board_width /2);
     attron(COLOR_PAIR(4));
-    mvprintw(3, 2,  "Me (Score: %d)", packet->my_score);
-    mvprintw(3, 40, "Opponent (Score: %d)", packet->opp_score);
+    mvprintw(3, me_center - (strlen(my_score_str)/2), "%s", my_score_str);
+    mvprintw(3, opp_center - (strlen(opp_score_str)/2), "%s", opp_score_str);
     attroff(COLOR_PAIR(4));
 
     // 2. 보드 그리기
@@ -379,7 +399,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
             
             // --- 내 보드 ---
             int val_me = packet->my_board[i][j];
-            int x_me = START_X_ME + (j * CELL_WIDTH);
+            int x_me = start_x_me + (j * CELL_WIDTH);
             int y_me = START_Y + (i * CELL_HEIGHT);
             
             bool is_highlight = (i == packet->highlight_r && j == packet->highlight_c);
@@ -403,7 +423,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
             
             // --- 상대 보드 ---
             int val_opp = packet->opp_board[i][j];
-            int x_opp = START_X_OPP + (j * CELL_WIDTH);
+            int x_opp = start_x_opp + (j * CELL_WIDTH);
             int y_opp = START_Y + (i * CELL_HEIGHT);
             
             if (val_opp == 0) {
@@ -434,37 +454,41 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     } else {
         printw("None");
     }
-    
-    // 4. 게임 종료 상태 메시지 -> [수정: 좌표를 18번째 줄로 이동하여 겹침 방지]
+    // 4. 게임 상태 메시지
     int status_y = 18; 
     
     if (packet->game_status == GAME_OVER_WAIT) {
-        // [대기 상태] 파랑배경
+        char msg1[100], msg2[100];
+        sprintf(msg1, "!!! NO MOVES - WAITING FOR OPPONENT (%d) !!!", packet->opp_score);
+        sprintf(msg2, "YOUR FINAL SCORE: %d", packet->my_score);
+
         attron(COLOR_PAIR(3)); 
-        mvprintw(status_y, 2, "!!! NO MOVES - WAITING FOR OPPONENT (%d) !!!", packet->opp_score);
-        mvprintw(status_y + 1, 2, "YOUR FINAL SCORE: %d", packet->my_score);
+        mvprintw(status_y, (col - strlen(msg1)) / 2, "%s", msg1);
+        mvprintw(status_y + 1, (col - strlen(msg2)) / 2, "%s", msg2);
         attroff(COLOR_PAIR(3));
         
     } else if (packet->game_status == GAME_LOSE) {
-        // [최종 패배]
+        char msg[100];
+        sprintf(msg, "!!! GAME OVER - YOU LOSE (%d) !!!", packet->my_score);
         attron(COLOR_PAIR(2) | A_BLINK | A_STANDOUT);
-        mvprintw(status_y, 2, "!!! GAME OVER - YOU LOSE (%d) !!!", packet->my_score);
+        mvprintw(status_y, (col - strlen(msg)) / 2, "%s", msg);
         attroff(COLOR_PAIR(2) | A_BLINK | A_STANDOUT);
         
     } else if (packet->game_status == GAME_WIN) {
-        // [최종 승리]
+        char msg[100];
+        sprintf(msg, "*** VICTORY - YOU WIN (%d) ***", packet->my_score);
         attron(COLOR_PAIR(4) | A_STANDOUT);
-        mvprintw(status_y, 2, "*** VICTORY - YOU WIN (%d) ***", packet->my_score);
+        mvprintw(status_y, (col - strlen(msg)) / 2, "%s", msg);
         attroff(COLOR_PAIR(4) | A_STANDOUT);
         
     } else {
-         // [진행 중] 메시지 영역 지우기
-        mvprintw(status_y, 2, "                                                    ");
-        mvprintw(status_y + 1, 2, "                                                    ");
+        const char* blank = "                                                             ";
+        mvprintw(status_y, (col - strlen(blank)) / 2, "%s", blank);
+        mvprintw(status_y +1, (col - strlen(blank)) / 2, "%s", blank);
     }
 
-    // 입력 가이드 위치도 살짝 아래로 조정 (21번째 줄)
-    mvprintw(21, 2, "Input (w/a/s/d) or 'q' to Quit");
+    const char* guide = "Input (w/a/s/d) or 'q' to Quit";
+    mvprintw(21, (col - strlen(guide)) / 2, "%s", guide);
     
     refresh();
 }
