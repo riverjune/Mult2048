@@ -12,8 +12,10 @@
 // ============================================
 // [전역 변수]
 // ============================================
-int sock;                   
+int sock = -1;                   
 pthread_mutex_t draw_mutex; 
+char *server_ip = "127.0.0.1";
+int server_port = 8080;
 
 // ============================================
 // [함수 선언]
@@ -23,35 +25,119 @@ void draw_game(S2C_Packet *pkt);
 void init_ncurses_settings();    
 void cleanup_and_exit(int exit_code, const char *msg); 
 
-int main(int argc, char *argv[]) {
-    struct sockaddr_in serv_addr;
-    pthread_t rcv_thread;
+// 메뉴 및 모드 관련
+int show_main_menu();
+void run_single_player_mode();
+void run_multiplayer_mode();
 
-    if (argc == 1) {
-        printf("Using default IP \"127.0.0.1\" and port 8080\n");
-        argv[1] = "127.0.0.1";
-        argv[2] = "8080";
-    } else if (argc == 2) {
-        printf("Using default port 8080\n");
-        argv[2] = "8080";
-    } else if (argc != 3) {
+int main(int argc, char *argv[]) {
+
+    if(argc == 2){
+        server_port = atoi(argv[1]);
+    } else if(argc == 3){
+        server_ip = argv[1];
+        server_port = atoi(argv[2]);
+    } else if(argc > 3){
         printf("Usage : %s <IP> <port>\n", argv[0]);
         exit(1);
     }
-
-    sock = socket(PF_INET, SOCK_STREAM, 0);
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
-    serv_addr.sin_port = htons(atoi(argv[2]));
-
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
-        perror("connect() error");
-        exit(1);
-    }
-
+    // 서버연결부분 추후에 실행
     init_ncurses_settings();
     pthread_mutex_init(&draw_mutex, NULL);
+
+    while(1) {
+        int choice = show_main_menu();
+        switch (choice) {
+            case 1:
+                run_single_player_mode();
+                break;
+            case 2:
+                run_multiplayer_mode();
+                break;
+            case 3:
+                cleanup_and_exit(0, "Exiting the game");
+                break;
+            default:
+                break;
+        }
+    }
+
+    return 0;
+}
+
+// 메인 메뉴 UI 구현
+int show_main_menu() {
+    clear();
+    int row, col;
+    getmaxyx(stdscr, row, col); //화면 크기 구하기
+
+    int center_y = row / 2;
+    int center_x = col / 2 - 15;
+    if(center_x < 0) center_x = 0;  
+    if (center_y < 4) center_y = 4;  
+
+    attron(COLOR_PAIR (3) | A_BOLD);
+    mvprintw(center_y - 4, center_x, "===============================");
+    mvprintw(center_y - 3, center_x, "|       2048 PvP CLIENT       |");
+    mvprintw(center_y - 2, center_x, "===============================");
+    attroff(COLOR_PAIR (3) | A_BOLD);
+
+    mvprintw(center_y, center_x, "1. Single Player Mode");
+    mvprintw(center_y + 1, center_x, "2. Multiplayer Mode");
+    mvprintw(center_y + 2, center_x, "3. Exit");
+    mvprintw(center_y + 4, center_x, "Select an option [1-3]: ");
+    refresh();
+
+    while(1) {
+        int ch = getch();
+        if (ch == '1') {
+            return 1;
+        } else if (ch == '2') {
+            return 2;
+        } else if (ch == '3' || ch == 'q' || ch == 'Q') {
+            return 3;
+        }
+    }
+}
+
+void run_single_player_mode() {
+    clear();
+    attron(COLOR_PAIR(4) | A_BOLD);
+    mvprintw(10, 10, "[ Single Player Mode ]");
+    mvprintw(12, 10, "This feature requires local game logic.");
+    mvprintw(14, 10, "Press any key to return to menu...");
+    attroff(COLOR_PAIR(4) | A_BOLD);
+    refresh();
+    getch();
+}
+// 기존 로직 멀티 플레이어 모드
+void run_multiplayer_mode() {
+    struct sockaddr_in serv_addr;
+    pthread_t rcv_thread;
+    // 소켓 생성
+    sock = socket(PF_INET, SOCK_STREAM, 0);
+    if( sock == -1) {
+        cleanup_and_exit(1, "Socket creation error");
+    }
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr(server_ip);
+    serv_addr.sin_port = htons(server_port);
+    // 연결 대기 화면
+    clear();
+    mvprintw(10, 20, "Connecting to server...");
+    refresh();
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
+        cleanup_and_exit(1, "Connection to server failed");
+        refresh();
+        getch();
+        close(sock);
+        sock = -1;
+        return; // 메뉴로 복귀
+    }
+
     pthread_create(&rcv_thread, NULL, recv_msg, (void *)&sock);
 
     while (1) {
@@ -69,13 +155,18 @@ int main(int argc, char *argv[]) {
         }
 
         if (valid_input) {
-            write(sock, &req, sizeof(req));
-            if (req.action == QUIT) {
-                cleanup_and_exit(0, "Quit by user.");
+            if(sock != -1) {
+                write(sock, &req, sizeof(req));
+                if(req.action == QUIT) {
+                    // 서버에 종료 알리고 루프 탈출
+                    pthread_cancel(rcv_thread);
+                    close(sock);
+                    sock = -1;
+                    return;
+                }
             }
         }
     }
-    return 0;
 }
 
 void *recv_msg(void *arg) {
@@ -249,7 +340,9 @@ void init_ncurses_settings() {
 void cleanup_and_exit(int exit_code, const char *msg) {
     pthread_mutex_destroy(&draw_mutex);
     endwin(); 
-    close(sock);
+    if (sock > 0) {
+        close(sock);
+    }
     
     if (msg != NULL) {
         printf("%s\n", msg);
