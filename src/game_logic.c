@@ -157,25 +157,27 @@ void game_queue_attack(GameState *state, int value) {
 }
 
 // [PvP] 공격 실행 및 하이라이트
+// [PvP] 공격 실행 및 하이라이트
 void game_execute_attack(GameState *state) {
     // 1. 하이라이트 초기화
     state->highlight_r = -1;
     state->highlight_c = -1;
 
-    // 2. 큐 확인
+    // 2. 큐 확인 (비어있으면 리턴)
     if (state->attack_cnt <= 0) return;
-
-    int attack_value = state->attack_queue[0];
     
-    // 3. 공격 가능한 위치(빈칸 0 또는 값이 2인 칸) 찾기
+    // [중요] 큐의 맨 앞 공격 값을 '미리' 확인 (아직 꺼내지는 않음)
+    int attack_value = state->attack_queue[0];
+
+    // 3. 공격 가능한 위치 찾기
+    // 조건: 빈칸(0) 이거나, 공격 값과 같은 숫자(합체 가능)인 곳
     typedef struct { int r; int c; } Pos;
     Pos targets[16];
     int target_cnt = 0;
 
     for(int i=0; i<4; i++) {
         for(int j=0; j<4; j++) {
-            // 빈칸이거나, 공격 타일이 2일 때 기존 타일이 2면 합체 가능
-            // (여기서는 공격 타일 값이 2라고 가정)
+            // [유준님의 로직 적용!]
             if (state->board[i][j] == 0 || state->board[i][j] == attack_value) {
                 targets[target_cnt].r = i;
                 targets[target_cnt].c = j;
@@ -184,11 +186,10 @@ void game_execute_attack(GameState *state) {
         }
     }
 
-    // 공격할 곳이 없으면 취소
+    // 공격할 공간이 전혀 없으면 리턴 (공격 큐 유지)
     if (target_cnt == 0) return;
 
-    // 4. 큐에서 꺼내기 (Shift Left)
-    int attack_value = state->attack_queue[0];
+    // 4. 이제 실제로 큐에서 꺼내기 (Shift Left)
     for (int i = 0; i < state->attack_cnt - 1; i++) {
         state->attack_queue[i] = state->attack_queue[i + 1];
     }
@@ -203,7 +204,7 @@ void game_execute_attack(GameState *state) {
     if (state->board[r][c] == 0) {
         state->board[r][c] = attack_value; // 빈칸에 생성
     } else {
-        state->board[r][c] += attack_value; // 합체 (2+2=4)
+        state->board[r][c] += attack_value; // 합체! (예: 2+2=4)
     }
 
     // 6. 하이라이트 설정
