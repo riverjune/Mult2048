@@ -164,6 +164,8 @@ void game_execute_attack(GameState *state) {
 
     // 2. 큐 확인
     if (state->attack_cnt <= 0) return;
+
+    int attack_value = state->attack_queue[0];
     
     // 3. 공격 가능한 위치(빈칸 0 또는 값이 2인 칸) 찾기
     typedef struct { int r; int c; } Pos;
@@ -172,8 +174,9 @@ void game_execute_attack(GameState *state) {
 
     for(int i=0; i<4; i++) {
         for(int j=0; j<4; j++) {
-            // 공격 타일이 2라고 가정하고, 빈칸이나 2인 곳을 찾음
-            if (state->board[i][j] == 0 || state->board[i][j] == 2) {
+            // 빈칸이거나, 공격 타일이 2일 때 기존 타일이 2면 합체 가능
+            // (여기서는 공격 타일 값이 2라고 가정)
+            if (state->board[i][j] == 0 || state->board[i][j] == attack_value) {
                 targets[target_cnt].r = i;
                 targets[target_cnt].c = j;
                 target_cnt++;
