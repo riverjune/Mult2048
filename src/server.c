@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <sys/select.h>
+#include <signal.h>
 
 #include "protocol.h"
 #include "game.h"
@@ -16,6 +17,7 @@
 int clnt_socks[MAX_CLNT];
 GameState game_states[MAX_CLNT];
 pthread_mutex_t mut;
+int serv_sock_global;
 
 // 함수 선언
 void *handle_client(void *arg);
@@ -31,11 +33,26 @@ int get_client_count() {
     return count;
 }
 
+void handle_sigint(int sig) {
+    printf("\n[Server] Shutting down ...\n");
+    
+    // 1. 서버 소켓 닫기 (포트 반납)
+    close(serv_sock_global);
+    
+    // 2. 뮤텍스 파괴
+    pthread_mutex_destroy(&mut);
+    
+    printf("[Server] Bye!\n");
+    exit(0); // 프로그램 종료
+}
+
 int main(int argc, char *argv[]) {
     int serv_sock, clnt_sock;
     struct sockaddr_in serv_adr, clnt_adr;
     socklen_t clnt_adr_sz;
     pthread_t t_id;
+
+    signal(SIGINT, handle_sigint);
 
     if (argc == 1) {
         printf("Using default port 8080\n");
@@ -51,6 +68,7 @@ int main(int argc, char *argv[]) {
     game_init(&game_states[1]);
 
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
+    serv_sock_global = serv_sock;
     if (serv_sock == -1) error_handling("socket() error");
 
     memset(&serv_adr, 0, sizeof(serv_adr));
