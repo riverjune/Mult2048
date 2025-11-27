@@ -52,8 +52,6 @@ int main(int argc, char *argv[]) {
     socklen_t clnt_adr_sz;
     pthread_t t_id;
 
-    signal(SIGINT, handle_sigint);
-
     if (argc == 1) {
         printf("Using default port 8080\n");
         argv[1] = "8080";
@@ -61,6 +59,8 @@ int main(int argc, char *argv[]) {
         printf("Usage : %s <port>\n", argv[0]);
         exit(1);
     }
+    
+    signal(SIGINT, handle_sigint);
 
     for(int i=0; i<MAX_CLNT; i++) clnt_socks[i] = -1;
     pthread_mutex_init(&mut, NULL);
