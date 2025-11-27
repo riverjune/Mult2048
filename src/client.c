@@ -296,7 +296,7 @@ void draw_waring(int screen_height, int screen_width){
         "                              /____/   "
     };
     int lines = sizeof(art) / sizeof(art[0]);
-    int art_width = 39;
+    int art_width = strlen(art[0]); // 모든 줄이 같은 길이라고 가정
     
     int start_y = (screen_height - lines) / 2;
     int start_x = (screen_width - art_width) / 2;
