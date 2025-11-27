@@ -286,6 +286,36 @@ void *recv_msg(void *arg) {
     return NULL;
 }
 
+void draw_waring(int screen_height, int screen_width){
+    const char *art[] = {
+        " _       __               _            ",
+        "| |     / /___ __________(_)___  ____ _",
+        "| | /| / / __ `/ ___/ __  / __ \\/ __ `/",
+        "| |/ |/ / /_/ / /  / / / / / / / /_/ / ",
+        "|__/|__/\\__,_/_/  /_/ /_/_/ /_/\\__, /  ",
+        "                              /____/   "
+    };
+    int lines = sizeof(art) / sizeof(art[0]);
+    int art_width = 39;
+    
+    int start_y = (screen_height - lines) / 2;
+    int start_x = (screen_width - art_width) / 2;
+    if (start_y < 0) start_y = 0;
+    if (start_x < 0) start_x = 0;
+
+    attron(COLOR_PAIR(2) | A_BOLD | A_BLINK | A_STANDOUT);
+    for (int i = 0; i < lines; i++) {
+        if (start_y + i >= screen_height - 2) break;
+        mvprintw(start_y + i, start_x, "%s", art[i]);
+    }
+    int text_y = start_y + lines + 1;
+    if (text_y < screen_height - 2) {
+        const char *warning_text = "!!! INCOMING ATTACK !!!";
+        mvprintw(text_y, (screen_width - strlen(warning_text)) / 2, "%s", warning_text);    
+    }
+    attroff(COLOR_PAIR(2) | A_BOLD | A_BLINK | A_STANDOUT);
+}
+
 // ============================================
 // [UI 그리기] 
 // ============================================
@@ -487,8 +517,13 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
         mvprintw(status_y +1, (col - strlen(blank)) / 2, "%s", blank);
     }
 
+    if (packet->is_hit) {
+        draw_waring(row, col);
+        beep(); // 경고음 재생
+    }
+
     const char* guide = "Input (w/a/s/d) or 'q' to Quit";
-    mvprintw(21, (col - strlen(guide)) / 2, "%s", guide);
+    mvprintw( row -2, (col - strlen(guide)) / 2, "%s", guide);
     
     refresh();
 }

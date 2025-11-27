@@ -44,6 +44,8 @@ typedef struct {
     // -1이면 하이라이트 없음
     int highlight_r; 
     int highlight_c;
+    // 공격이벤트
+    bool is_hit;
 
 } S2C_Packet;
 

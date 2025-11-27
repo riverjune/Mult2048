@@ -24,6 +24,17 @@ void *handle_client(void *arg);
 // [수정] send_game_state 삭제 -> compose_packet만 남김
 void compose_packet(int id, S2C_Packet *res_packet);
 void error_handling(const char *msg);
+// 패킷 전체 수신 보장 함수
+int recv_all(int sock, void *buffer, size_t len) {
+    size_t received = 0;
+    char *ptr = (char *)buffer;
+    while (received < len) {
+        int ret = read(sock, ptr + received, len - received);
+        if (ret <= 0) return ret;
+        received += ret;
+    }
+    return received;
+}
 
 int get_client_count() {
     int count = 0;
@@ -51,6 +62,8 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_adr, clnt_adr;
     socklen_t clnt_adr_sz;
     pthread_t t_id;
+    
+    signal(SIGINT, handle_sigint);
 
     if (argc == 1) {
         printf("Using default port 8080\n");
@@ -59,8 +72,7 @@ int main(int argc, char *argv[]) {
         printf("Usage : %s <port>\n", argv[0]);
         exit(1);
     }
-    
-    signal(SIGINT, handle_sigint);
+
 
     for(int i=0; i<MAX_CLNT; i++) clnt_socks[i] = -1;
     pthread_mutex_init(&mut, NULL);
@@ -70,6 +82,9 @@ int main(int argc, char *argv[]) {
     serv_sock = socket(PF_INET, SOCK_STREAM, 0);
     serv_sock_global = serv_sock;
     if (serv_sock == -1) error_handling("socket() error");
+
+    int opt = 1;
+    setsockopt(serv_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     memset(&serv_adr, 0, sizeof(serv_adr));
     serv_adr.sin_family = AF_INET;
@@ -151,18 +166,31 @@ int main(int argc, char *argv[]) {
 void *handle_client(void *arg) {
     int my_id = *((int *)arg);
     int opp_id = (my_id + 1) % 2;
-    int sock = clnt_socks[my_id];
+    int sock;
+
+    pthread_mutex_lock(&mut);
+    sock = clnt_socks[my_id];
+    pthread_mutex_unlock(&mut);
+
     free(arg);
 
     C2S_Packet req_packet;
     int idle_timer = 0;
 
-    // [수정] 최초 접속 시 패킷 전송 (compose + write)
+    // 초기 접속 패킷
     S2C_Packet init_pkt;
+    int need_init_send = 0;
+
     pthread_mutex_lock(&mut);
-    compose_packet(my_id, &init_pkt);
+    if (get_client_count() < 2) {
+        compose_packet(my_id, &init_pkt);
+        need_init_send = 1;
+    }
     pthread_mutex_unlock(&mut);
-    write(sock, &init_pkt, sizeof(init_pkt));
+
+    if (need_init_send) {
+        write(sock, &init_pkt, sizeof(init_pkt));
+    }
 
     while (1) {
         fd_set reads;
@@ -217,7 +245,7 @@ void *handle_client(void *arg) {
 
         // [Case B] 데이터 수신
         if (FD_ISSET(sock, &reads)) {
-            int str_len = read(sock, &req_packet, sizeof(req_packet));
+            int str_len = recv_all(sock, &req_packet, sizeof(req_packet));
             if (str_len <= 0) break;
 
             if (req_packet.action == QUIT) {
@@ -244,6 +272,8 @@ void *handle_client(void *arg) {
                 game_execute_attack(&game_states[my_id]);
                 game_is_over(&game_states[my_id]);
 
+                bool attack_occurred = false;
+
                 if (score_gained >= 128) {
                     int attack_count = score_gained / 128;
                     if (attack_count > 4) attack_count = 4;
@@ -251,13 +281,21 @@ void *handle_client(void *arg) {
                         int attack_value = (rand() % 10 == 0) ? 4 : 2;
                         game_queue_attack(&game_states[opp_id], attack_value);
                     }
+                    // 공격 발생 플래그 켜기
                     printf("[P%d] Attack! Sent %d blocks\n", my_id + 1, attack_count);
+                    attack_occurred = true;
                 }
                 
                 // [수정] 패킷 생성
                 compose_packet(my_id, &my_pkt);
                 opp_sock = clnt_socks[opp_id];
-                if (opp_sock != -1) compose_packet(opp_id, &opp_pkt);
+                if (opp_sock != -1) {
+                    compose_packet(opp_id, &opp_pkt);
+                    // 공격 이벤트 플래그 설정
+                    if (attack_occurred) {
+                        opp_pkt.is_hit = true;
+                    }
+                }
                 need_send = 1;
             }
             else if (game_states[my_id].game_over) {
@@ -316,6 +354,9 @@ void compose_packet(int id, S2C_Packet *res_packet) {
     // [수정] 내부 변수 선언 제거 -> 인자로 받은 res_packet 사용
     int opp_id = (id + 1) % 2;
 
+    // 패킷 메모리 초기화
+    memset(res_packet, 0, sizeof(S2C_Packet));
+
     // 1. 내 정보 채우기
     memcpy(res_packet->my_board, game_states[id].board, sizeof(int) * 16);
     res_packet->my_score = game_states[id].score;
@@ -334,6 +375,8 @@ void compose_packet(int id, S2C_Packet *res_packet) {
     res_packet->attack_count = game_states[id].attack_cnt;
     res_packet->highlight_r = game_states[id].highlight_r;
     res_packet->highlight_c = game_states[id].highlight_c;
+
+    res_packet->is_hit = false;
     
     // 4. 게임 상태 판정
     if (get_client_count() < 2) {
