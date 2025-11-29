@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <ncurses.h> 
+#include <time.h>
 
 #include "protocol.h" 
 #include "game.h"
@@ -18,6 +19,8 @@ pthread_mutex_t draw_mutex;
 char *server_ip = "127.0.0.1"; // 기본값 설정
 int server_port = 8080;        // 기본값 설정
 
+time_t hit_timer = 0;
+
 // ============================================
 // [함수 선언]
 // ============================================
@@ -26,6 +29,7 @@ void draw_game(S2C_Packet *pkt, int is_single_mode);
 void init_ncurses_settings();    
 void cleanup_and_exit(int exit_code, const char *msg); 
 int recv_all(int sock, void *buffer, size_t len);
+void draw_waring(int screen_height, int screen_width);
 
 // 메뉴 및 모드 관련
 int show_main_menu();
@@ -181,6 +185,9 @@ void run_single_player_mode() {
 void run_multiplayer_mode() {
     struct sockaddr_in serv_addr;
     pthread_t rcv_thread;
+
+    hit_timer = 0;
+
     // 소켓 생성
     sock = socket(PF_INET, SOCK_STREAM, 0);
     if( sock == -1) {
@@ -298,7 +305,7 @@ void draw_waring(int screen_height, int screen_width){
     int lines = sizeof(art) / sizeof(art[0]);
     int art_width = strlen(art[0]); // 모든 줄이 같은 길이라고 가정
     
-    int start_y = (screen_height - lines) / 2;
+    int start_y = (screen_height - lines) / 2 + 4;
     int start_x = (screen_width - art_width) / 2;
     if (start_y < 0) start_y = 0;
     if (start_x < 0) start_x = 0;
@@ -330,6 +337,11 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     int row, col;
     getmaxyx(stdscr, row, col); //화면 크기 구하기
     (void)row;
+    // 서버 피격신호시 타이머 시작 (3초설정) 532줄 시간설정가능
+    if (packet -> is_hit){
+        hit_timer = time(NULL); //현재 시간 저장
+    }
+
     if (is_single_mode) {
         int board_width = (CELL_WIDTH * 4);
         int start_x = (col - board_width)/ 2;
@@ -517,9 +529,11 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
         mvprintw(status_y +1, (col - strlen(blank)) / 2, "%s", blank);
     }
 
-    if (packet->is_hit) {
+    if (hit_timer > 0 && time(NULL) - hit_timer < 3){
         draw_waring(row, col);
-        beep(); // 경고음 재생
+        if (packet -> is_hit) beep();
+    } else {
+        hit_timer = 0;
     }
 
     const char* guide = "Input (w/a/s/d) or 'q' to Quit";

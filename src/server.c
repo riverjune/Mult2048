@@ -45,6 +45,7 @@ int get_client_count() {
 }
 
 void handle_sigint(int sig) {
+    (void)sig;
     printf("\n[Server] Shutting down ...\n");
     
     // 1. 서버 소켓 닫기 (포트 반납)
