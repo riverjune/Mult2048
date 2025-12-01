@@ -52,7 +52,7 @@ make
 ## 사용 방법 및 규칙 (Usage & Rules)
 
 ### 메인메뉴 (MainMenu)
-![이미지이름](이미지링크주소)
+![MainMenu](https://github.com/riverjune/Mult2048/blob/main/doc/MainMenu.png)
 
 ### 조작법 (Controls)
 * **이동(move)**: `w`(Up), `a`(Left), `s`(Down), `d`(Right) or Arrow
