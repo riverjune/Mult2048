@@ -21,7 +21,6 @@ int serv_sock_global;
 
 // 함수 선언
 void *handle_client(void *arg);
-// [수정] send_game_state 삭제 -> compose_packet만 남김
 void compose_packet(int id, S2C_Packet *res_packet);
 void error_handling(const char *msg);
 // 패킷 전체 수신 보장 함수
@@ -48,10 +47,10 @@ void handle_sigint(int sig) {
     (void)sig;
     printf("\n[Server] Shutting down ...\n");
     
-    // 1. 서버 소켓 닫기 (포트 반납)
+    // 서버 소켓 닫기 (포트 반납)
     close(serv_sock_global);
     
-    // 2. 뮤텍스 파괴
+    // 뮤텍스 파괴
     pthread_mutex_destroy(&mut);
     
     printf("[Server] Bye!\n");
@@ -129,7 +128,7 @@ int main(int argc, char *argv[]) {
         
         printf("Connected client IP: %s (Player %d)\n", inet_ntoa(clnt_adr.sin_addr), empty_slot + 1);
 
-        // [수정] 매칭 성공 시 전송 (compose + write 분리)
+        // 매칭 성공 시 전송
         S2C_Packet start_pkt1, start_pkt2;
         int sock1 = -1, sock2 = -1;
         int need_start_send = 0;
@@ -147,9 +146,9 @@ int main(int argc, char *argv[]) {
             need_start_send = 1;
         }
 
-        pthread_mutex_unlock(&mut); // ★ 락 해제
+        pthread_mutex_unlock(&mut); // 락 해제
 
-        // [수정] 락 밖에서 전송
+        // 락 밖에서 전송
         if (need_start_send) {
             if (sock1 != -1) write(sock1, &start_pkt1, sizeof(S2C_Packet));
             if (sock2 != -1) write(sock2, &start_pkt2, sizeof(S2C_Packet));
@@ -206,7 +205,7 @@ void *handle_client(void *arg) {
 
         if (result < 0) break; 
 
-        // [Case A] 타임아웃
+        // 타임아웃
         if (result == 0) {
             S2C_Packet my_pkt, opp_pkt;
             int opp_sock = -1;
@@ -223,7 +222,7 @@ void *handle_client(void *arg) {
                     game_execute_attack(&game_states[my_id]);
                     game_is_over(&game_states[my_id]);
                     
-                    // [수정] 패킷 생성
+                    // 패킷 생성
                     compose_packet(my_id, &my_pkt);
                     opp_sock = clnt_socks[opp_id];
                     if (opp_sock != -1) compose_packet(opp_id, &opp_pkt);
@@ -234,9 +233,9 @@ void *handle_client(void *arg) {
             } else {
                 idle_timer = 0;
             }
-            pthread_mutex_unlock(&mut); // ★ 락 해제
+            pthread_mutex_unlock(&mut);
 
-            // [수정] 락 밖에서 전송
+           
             if (need_send) {
                 write(sock, &my_pkt, sizeof(my_pkt));
                 if (opp_sock != -1) write(opp_sock, &opp_pkt, sizeof(opp_pkt));
@@ -244,7 +243,7 @@ void *handle_client(void *arg) {
             continue;
         }
 
-        // [Case B] 데이터 수신
+        // 데이터 수신
         if (FD_ISSET(sock, &reads)) {
             int str_len = recv_all(sock, &req_packet, sizeof(req_packet));
             if (str_len <= 0) break;
@@ -287,7 +286,7 @@ void *handle_client(void *arg) {
                     attack_occurred = true;
                 }
                 
-                // [수정] 패킷 생성
+                // 패킷 생성
                 compose_packet(my_id, &my_pkt);
                 opp_sock = clnt_socks[opp_id];
                 if (opp_sock != -1) {
@@ -307,9 +306,8 @@ void *handle_client(void *arg) {
                  need_send = 1;
             }
 
-            pthread_mutex_unlock(&mut); // ★ 락 해제
+            pthread_mutex_unlock(&mut); 
 
-            // [수정] 락 밖에서 전송
             if (need_send) {
                 write(sock, &my_pkt, sizeof(my_pkt));
                 if (opp_sock != -1) write(opp_sock, &opp_pkt, sizeof(opp_pkt));
@@ -348,21 +346,19 @@ void *handle_client(void *arg) {
     return NULL;
 }
 
-// ============================================
-// [Helper] 패킷 데이터 채우기 (전송 안 함)
-// ============================================
+// 패킷 데이터 채우기 (전송 안 함)
+
 void compose_packet(int id, S2C_Packet *res_packet) {
-    // [수정] 내부 변수 선언 제거 -> 인자로 받은 res_packet 사용
     int opp_id = (id + 1) % 2;
 
     // 패킷 메모리 초기화
     memset(res_packet, 0, sizeof(S2C_Packet));
 
-    // 1. 내 정보 채우기
+    // 내 정보 채우기
     memcpy(res_packet->my_board, game_states[id].board, sizeof(int) * 16);
     res_packet->my_score = game_states[id].score;
     
-    // 2. 상대방 정보 채우기
+    // 상대방 정보 
     if (clnt_socks[opp_id] != -1) {
         memcpy(res_packet->opp_board, game_states[opp_id].board, sizeof(int) * 16);
         res_packet->opp_score = game_states[opp_id].score;
@@ -371,7 +367,7 @@ void compose_packet(int id, S2C_Packet *res_packet) {
         res_packet->opp_score = 0;
     }
 
-    // 3. 공격 정보
+    // 공격 정보
     memcpy(res_packet->pending_attacks, game_states[id].attack_queue, sizeof(int) * 10);
     res_packet->attack_count = game_states[id].attack_cnt;
     res_packet->highlight_r = game_states[id].highlight_r;
@@ -379,7 +375,7 @@ void compose_packet(int id, S2C_Packet *res_packet) {
 
     res_packet->is_hit = false;
     
-    // 4. 게임 상태 판정
+    // 게임 상태 판정
     if (get_client_count() < 2) {
         res_packet->game_status = GAME_WAITING;
     }
@@ -401,7 +397,6 @@ void compose_packet(int id, S2C_Packet *res_packet) {
             res_packet->game_status = GAME_PLAYING;
         }
     }
-    // [수정] write 호출 없음
 }
 
 void error_handling(const char *message) {

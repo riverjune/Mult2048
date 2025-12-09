@@ -16,14 +16,14 @@ static int process_line(int *line) {
     int temp[4] = {0};
     int temp_idx = 0;
 
-    // 1. [Slide] 0이 아닌 숫자들을 앞으로 당김
+    // 0이 아닌 숫자들을 앞으로 당김
     for (int i = 0; i < 4; i++) {
         if (line[i] != 0) {
             temp[temp_idx++] = line[i];
         }
     }
 
-    // 2. [Merge] 인접한 같은 숫자 합치기
+    // 인접한 같은 숫자 합치기
     for (int i = 0; i < temp_idx - 1; i++) {
         if (temp[i] != 0 && temp[i] == temp[i+1]) {
             temp[i] *= 2;      // 합체
@@ -33,7 +33,7 @@ static int process_line(int *line) {
         }
     }
 
-    // 3. [Slide Again] 합쳐진 후 생긴 빈 공간 정리
+    // 합쳐진 후 생긴 빈 공간 정리
     int final_idx = 0;
     for (int i = 0; i < 4; i++) {
         if (temp[i] != 0) {
@@ -59,15 +59,11 @@ static bool can_spawn(GameState *state) {
     return false;
 }
 
-// ==========================================
-// [2] 공개 함수 구현 (Public API)
-// ==========================================
-
+// 공개 함수 구현
 void game_init(GameState *state) {
     memset(state, 0, sizeof(GameState));
     
-    // 주의: srand는 서버 main에서 한 번만 호출하는 것이 좋음
-    // srand(time(NULL)); 
+    srand(time(NULL)); 
 
     game_spawn_tile(state);
     game_spawn_tile(state);
@@ -109,7 +105,7 @@ int game_move(GameState *state, Direction dir) {
     state->highlight_c = -1;
     
     for (int i = 0; i < 4; i++) {
-        // 1. 방향에 따라 한 줄 추출
+        // 방향에 따라 한 줄 추출
         for (int j = 0; j < 4; j++) {
             switch(dir) {
                 case UP:    temp_line[j] = state->board[j][i];     break;
@@ -119,10 +115,10 @@ int game_move(GameState *state, Direction dir) {
             }
         }
         
-        // 2. 핵심 로직 실행
+        // 핵심 로직 실행
         total_score += process_line(temp_line);
         
-        // 3. 다시 보드에 복사
+        // 다시 보드에 복사
         for (int j = 0; j < 4; j++) {
             switch(dir) {
                 case UP:    state->board[j][i]     = temp_line[j]; break;
@@ -149,14 +145,13 @@ check_end:
     return total_score;
 }
 
-// [PvP] 공격 예약
+// 공격 예약
 void game_queue_attack(GameState *state, int value) {
     if (state->attack_cnt < 10) {
         state->attack_queue[state->attack_cnt++] = value;
     }
 }
 
-// [PvP] 공격 실행 및 하이라이트
 // [PvP] 공격 실행 및 하이라이트
 void game_execute_attack(GameState *state) {
     // 1. 하이라이트 초기화
@@ -166,18 +161,18 @@ void game_execute_attack(GameState *state) {
     // 2. 큐 확인 (비어있으면 리턴)
     if (state->attack_cnt <= 0) return;
     
-    // [중요] 큐의 맨 앞 공격 값을 '미리' 확인 (아직 꺼내지는 않음)
+    // 큐의 맨 앞 공격 값을 미리 확인 (아직 꺼내지는 않음)
     int attack_value = state->attack_queue[0];
 
-    // 3. 공격 가능한 위치 찾기
-    // 조건: 빈칸(0) 이거나, 공격 값과 같은 숫자(합체 가능)인 곳
+    // 공격 가능한 위치 찾기
+    // 조건: 빈칸(0) 이거나, 공격 값과 같은 숫자인 곳
     typedef struct { int r; int c; } Pos;
     Pos targets[16];
     int target_cnt = 0;
 
     for(int i=0; i<4; i++) {
         for(int j=0; j<4; j++) {
-            // [유준님의 로직 적용!]
+            
             if (state->board[i][j] == 0 || state->board[i][j] == attack_value) {
                 targets[target_cnt].r = i;
                 targets[target_cnt].c = j;
@@ -189,14 +184,14 @@ void game_execute_attack(GameState *state) {
     // 공격할 공간이 전혀 없으면 리턴 (공격 큐 유지)
     if (target_cnt == 0) return;
 
-    // 4. 이제 실제로 큐에서 꺼내기 (Shift Left)
+    // 이제 실제로 큐에서 꺼내기
     for (int i = 0; i < state->attack_cnt - 1; i++) {
         state->attack_queue[i] = state->attack_queue[i + 1];
     }
     state->attack_cnt--;
     state->attack_queue[state->attack_cnt] = 0;
 
-    // 5. 랜덤 위치에 공격 적용
+    // 랜덤 위치에 공격 적용
     int idx = rand() % target_cnt;
     int r = targets[idx].r;
     int c = targets[idx].c;
@@ -204,19 +199,19 @@ void game_execute_attack(GameState *state) {
     if (state->board[r][c] == 0) {
         state->board[r][c] = attack_value; // 빈칸에 생성
     } else {
-        state->board[r][c] += attack_value; // 합체! (예: 2+2=4)
+        state->board[r][c] += attack_value; // 합체
     }
 
-    // 6. 하이라이트 설정
+    // 하이라이트 설정
     state->highlight_r = r;
     state->highlight_c = c;
 }
 
 bool game_is_over(GameState *state) {
-    // 1. 빈 칸이 있으면 false
+    // 빈 칸이 있으면 false
     if (can_spawn(state)) return false;
     
-    // 2. 인접한 같은 숫자 있으면 false
+    // 인접한 같은 숫자 있으면 false
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
             int current = state->board[i][j];
@@ -227,7 +222,7 @@ bool game_is_over(GameState *state) {
         }
     }
     
-    // 3. 둘 다 아니면 true
+    // 둘 다 아니면 true
     state->game_over = true;
     return true;
 }

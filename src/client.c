@@ -11,9 +11,9 @@
 
 #include "protocol.h" 
 #include "game.h"
-// ============================================
-// [전역 변수]
-// ============================================
+
+// 전역 변수
+
 int sock = -1;                   
 pthread_mutex_t draw_mutex; 
 char *server_ip = "127.0.0.1"; // 기본값 설정
@@ -21,9 +21,8 @@ int server_port = 8080;        // 기본값 설정
 
 time_t hit_timer = 0;
 
-// ============================================
-// [함수 선언]
-// ============================================
+// 함수 선언
+
 void *recv_msg(void *arg);       
 void draw_game(S2C_Packet *pkt, int is_single_mode); 
 void init_ncurses_settings();    
@@ -115,17 +114,15 @@ int show_main_menu() {
     }
 }
 
-// ============================================
-// [싱글 플레이어 모드]
-// ============================================
+// 싱글 플레이어 모드
 void run_single_player_mode() {
-    // 1. 로컬 게임 상태 생성 및 초기화
+    // 로컬 게임 상태 생성 및 초기화
     GameState local_state;
     game_init(&local_state);
 
     while (1) {
-        // 2. 화면 그리기 (GameState -> S2C_Packet 변환)
-        // draw_game 함수를 재사용하기 위해 가짜 패킷생성.
+        // 화면 그리기 (GameState -> S2C_Packet 변환)
+        // draw_game 함수를 재사용하기 위해 가짜 패킷생성
         S2C_Packet display_packet;
         memset(&display_packet, 0, sizeof(display_packet));
 
@@ -141,15 +138,15 @@ void run_single_player_mode() {
 
         // 게임 상태 설정
         if (local_state.game_over) {
-            display_packet.game_status = GAME_LOSE; // 싱글에선 오버되면 LOSE 취급 (혹은 메시지 따로 처리 가능)
+            display_packet.game_status = GAME_LOSE; // 싱글에선 오버되면 LOSE 취급
         } else {
             display_packet.game_status = GAME_PLAYING;
         }
 
-        // 화면 그리기 (뮤텍스 필요 없음 - 싱글 스레드)
+        // 화면 그리기
         draw_game(&display_packet, 1);
 
-        // 3. 게임 오버 시 종료 처리
+        // 게임 오버 시 종료 처리
         if (local_state.game_over) {
             // 게임 오버 상태에서 키 입력 대기 (바로 꺼지지 않게)
             int ch = getch();
@@ -157,7 +154,7 @@ void run_single_player_mode() {
             continue; 
         }
 
-        // 4. 입력 처리
+        // 입력 처리
         int ch = getch();
         Direction dir;
         int valid_move = 0;
@@ -171,7 +168,7 @@ void run_single_player_mode() {
             default: valid_move = 0; break;
         }
 
-        // 5. 로직 실행 (서버 없이 직접 계산)
+        //로직 실행 
         if (valid_move) {
             game_move(&local_state, dir);
             if (local_state.moved) {
@@ -281,7 +278,6 @@ void *recv_msg(void *arg) {
             pthread_mutex_unlock(&draw_mutex);
             
             // 메인 루프 종료를 유도하거나 여기서 대기
-            // 간단하게는 소켓 닫고 break하면 메인 루프의 write에서 에러나서 종료됨
             close(sock);
             sock = -1;
             break;
@@ -323,9 +319,7 @@ void draw_waring(int screen_height, int screen_width){
     attroff(COLOR_PAIR(2) | A_BOLD | A_BLINK | A_STANDOUT);
 }
 
-// ============================================
-// [UI 그리기] 
-// ============================================
+// UI 
 
 #define START_Y 6
 #define CELL_WIDTH 6
@@ -337,7 +331,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     int row, col;
     getmaxyx(stdscr, row, col); //화면 크기 구하기
     (void)row;
-    // 서버 피격신호시 타이머 시작 (3초설정) 532줄 시간설정가능
+    // 서버 피격신호시 타이머 시작 3초설정
     if (packet -> is_hit){
         hit_timer = time(NULL); //현재 시간 저장
     }
@@ -388,7 +382,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
             mvprintw(status_y + 2, (col - strlen(guide)) / 2, "%s", guide);
             
             refresh();
-            return; // 싱글 모드 그리기 종료
+            return; 
         }
     // 대기실 화면 처리
     if (packet->game_status == GAME_WAITING) {
@@ -419,7 +413,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     int start_x_me = start_x_total;
     int start_x_opp = start_x_total + single_board_width + gap;
 
-    // 1. 타이틀
+    // 타이틀
     const char* title = "======[ 2048 PvP Mode ]======";
     mvprintw(1, (col - strlen(title)) / 2, "%s", title);
 
@@ -435,11 +429,11 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     mvprintw(3, opp_center - (strlen(opp_score_str)/2), "%s", opp_score_str);
     attroff(COLOR_PAIR(4));
 
-    // 2. 보드 그리기
+    // 보드 그리기
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
             
-            // --- 내 보드 ---
+            //내 보드
             int val_me = packet->my_board[i][j];
             int x_me = start_x_me + (j * CELL_WIDTH);
             int y_me = START_Y + (i * CELL_HEIGHT);
@@ -463,7 +457,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
 
             if (is_highlight) attroff(COLOR_PAIR(2) | A_STANDOUT | A_BOLD);
             
-            // --- 상대 보드 ---
+            // 상대 보드
             int val_opp = packet->opp_board[i][j];
             int x_opp = start_x_opp + (j * CELL_WIDTH);
             int y_opp = START_Y + (i * CELL_HEIGHT);
@@ -471,7 +465,6 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
             if (val_opp == 0) {
                 mvprintw(y_opp, x_opp, "  .  ");
             } else {
-                //중앙정렬 구현
                 if (val_opp < 10)
                     mvprintw(y_opp, x_opp, "  %d  ", val_opp);
                 else if (val_opp < 100)
@@ -484,7 +477,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
         }
     }
     
-    // 3. 하단 정보 (공격 대기열 출력) -> [좌표: 16번째 줄]
+    // 공격 대기열
     mvprintw(16, 2, "Pending Attacks (Queue): ");
     
     if (packet->attack_count > 0) {
@@ -496,7 +489,7 @@ void draw_game(S2C_Packet *packet, int is_single_mode) {
     } else {
         printw("None");
     }
-    // 4. 게임 상태 메시지
+    //게임 상태 메시지
     int status_y = 18; 
     
     if (packet->game_status == GAME_OVER_WAIT) {
