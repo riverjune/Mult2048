@@ -9,7 +9,7 @@ typedef enum {
     GAME_PLAYING,
     GAME_WIN,
     GAME_LOSE,
-    GAME_OVER_WAIT  // [NEW] 나는 끝났지만 상대방 기다리는 중
+    GAME_OVER_WAIT  //나는 끝났지만 상대방 기다리는 중
 } GameStatus;
 
 //클라이언트의 입력을 나타내는 상수
@@ -36,11 +36,11 @@ typedef struct {
 
     GameStatus game_status;
     
-    // 공격 큐 정보 (화면 표시용)
+    // 공격 큐 정보
     int pending_attacks[10]; 
     int attack_count;        
 
-    // [핵심 추가] 하이라이트 좌표 (공격받은 위치)
+    // 하이라이트 좌표 (공격받은 위치)
     // -1이면 하이라이트 없음
     int highlight_r; 
     int highlight_c;

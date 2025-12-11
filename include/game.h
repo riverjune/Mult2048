@@ -13,7 +13,6 @@ typedef struct {
     int score;       // 현재 점수
     bool game_over;  // 게임 오버 여부
     bool moved;      // 마지막 이동에서 타일이 움직였는지 여부
-    // [PvP 확장 기능]
     int attack_queue[10]; // 최대 10개의 공격 대기열
     int attack_cnt;       // 현재 대기열에 있는 공격 수
 
@@ -40,7 +39,7 @@ typedef enum {
 void game_init(GameState* state);
 
 /**
- * @brief 사용자의 입력(방향)에 따라 보드의 타일을 이동하고 합침
+ * @brief 사용자의 입력에 따라 보드의 타일을 이동하고 합침
  * 프로젝트의 뇌에 해당하는 가장 복잡한 함수
  * @param state 게임 상태 구조체의 포인터
  * @param dir 이동 방향 (UP, DOWN, LEFT, RIGHT)
